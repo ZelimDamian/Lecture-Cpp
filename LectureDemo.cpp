@@ -10,6 +10,9 @@
 #include <assert.h>
 #include <algorithm>
 #include <functional>
+#include <thread>
+#include <chrono>
+#include <mutex>
 
 using namespace demo;
 
@@ -85,7 +88,6 @@ auto indexInto(Container& c, Index i) // requires
 {
 	return c[i];
 }
-
 
 // dummy function that can eat anything
 template <class T>
@@ -346,6 +348,27 @@ void work()
 //			return n == 1 ? 1 : n*fac(n - 1);
 //		}
 
+//		constexpr int pow(int base, int exp) noexcept // C++14
+//		{
+//			auto result = 1;
+//			for (int i = 0; i < exp; ++i) result *= base;
+//			return result;
+//		}
+
+//		auto L = [](const auto& x, auto& y){ return x + y; };
+//
+//		struct /* anonymous */
+//		{
+//			template <typename T, typename U>
+//			auto operator()(const T& x, U& y) const // N3386 Return type deduction
+//			{ return x + y; }
+//		} L;
+
+//		std::vector<double> data; // object to be moved
+//		// into closure // populate data
+//		auto func = [data = std::move(data)] // C++14 init capture
+//		{ /* uses of data */ };
+
 		// Recursive constexpr function
 		class Bar
 		{
@@ -406,20 +429,22 @@ void work()
 
 		struct Person
 		{
+			Person(const char *name) : name(name) { }
+
 			std::string name;
 		};
 
 		// old way
 		{
-			Person* person = new Person { "Mr. Dynamic" };
+			Person *person = new Person{"Mr. Dynamic"};
 			delete person; // must not forget to delete!!!
 
 			struct Factory
 			{
-				static float* create() { return new float[1000]; }
+				static float *create() { return new float[1000]; }
 			};
 
-			float* data = Factory::create(); // who should delete data? what if implementation is hidden?
+			float *data = Factory::create(); // who should delete data? what if implementation is hidden?
 			delete data; // must not forget to delete!!!
 		}
 		// using unique_ptr
@@ -430,7 +455,7 @@ void work()
 
 			struct Factory
 			{
-				static PersonPtr create() { return std::unique_ptr<Person>(new Person { "New person" }); }
+				static PersonPtr create() { return std::unique_ptr<Person>(new Person{"New person"}); }
 			};
 
 			struct PersonConsumer
@@ -442,7 +467,7 @@ void work()
 			// no need to delete as person will do that on scope exit
 //			auto person2 = person; // FAIL! unique_ptr is not copyable. Why?
 			auto person3 = std::move(person); // FAIL! unique_ptr is not copyable
-			PersonConsumer::consume(person3); // can't pass it as argument either
+//			PersonConsumer::consume(person3); // can't pass it as argument either
 		}
 		// using shared_ptr
 		{
@@ -451,6 +476,11 @@ void work()
 			struct Factory
 			{
 				static PersonPtr create() { return std::make_shared<Person>("New person"); }
+
+				static std::unique_ptr<Person> createUnique()
+				{
+					return std::unique_ptr<Person>(new Person("New person"));
+				}
 			};
 
 			struct PersonConsumer
@@ -467,11 +497,57 @@ void work()
 			auto person2 = person; // Ref count = 2; can copy which will increment ref count
 			auto person3 = std::move(person); // Ref count = 2; can move doesn't touch ref count
 			PersonConsumer::consume(person3); // Ref count = 3 and then 2; can pass wherever we want
-			PersonStorer jail { person }; // Ref count = 3
+			PersonStorer jail{person}; // Ref count = 3
+
+			// unique_ptr can be easily converted to shared_ptr
+			PersonPtr uniqPerson = Factory::createUnique();
 
 			// no need to delete as person will do that on scope exit
 			// person, person2, person3 and jail are destructed here, which makes Ref count = 0
 		}
+	}
+	{
+		// multithreading
+
+		struct T
+		{
+			static void foo() { // simulate expensive operation
+				 std::this_thread::sleep_for(std::chrono::seconds(1)); }
+		};
+
+		std::thread t1(T::foo);
+
+		// works nicely with lamdas
+		std::thread t2([]() {
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+		});
+
+		std::cout << "waiting for threads to finish..." << std::endl;
+		t1.join();
+		t2.join();
+
+		std::cout << "done!\n";
+
+//		std::mutex mu;
+//
+//		void shared_cout(std::string msg, int id)
+//		{
+//			std::lock_guard l(mu);
+//			std::cout << msg << ":" << id << std::endl;
+//		}
+//		void thread_function()
+//		{
+//			for (int i = 0; i < 10; i++)
+//				shared_cout("thread function", i);
+//		}
+//
+//		{
+//			std::thread t(&thread_function);
+//			for (int i = 100; i > 0; i--)
+//				shared_cout("main thread", i);
+//			t.join();
+//		}
+
 	}
 }
 
